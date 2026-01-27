@@ -11,6 +11,12 @@ import random
 import time
 from cryptography.fernet import Fernet
 import os
+from datetime import datetime
+from colorama import Fore, init
+
+init(autoreset=True)
+
+
 
 VERIFY_SERVER = None
 PING_SERVER = None
@@ -20,13 +26,19 @@ KEY = b"TozbaVD6cr1Bg_JJqxlLEF8bmPXoS7rRXAEZTR_Sl5g="
 SESSION = None
 STOP = False
 
+def now_ts():
+    return datetime.now().strftime("[%Y:%m:%d ~ %H:%M:%S] |")
+
+def log(message, color=Fore.RESET):
+    safe_message = str(message).encode("utf-8", "backslashreplace").decode("utf-8")
+    print(Fore.LIGHTBLACK_EX + now_ts() + " " + color + safe_message + Fore.RESET)
 
 def load_config():
     try:
         with open(CONFIG_FILE) as f:
             return json.load(f)
     except:
-        print("❌ config.json not found / invalid")
+        log("❌ config.json not found / invalid", Fore.RED)
         sys.exit(1)
 
 
@@ -38,7 +50,7 @@ def fetch_server_url():
             raise Exception("invalid url")
         return url
     except Exception as e:
-        print("❌ Failed fetch server URL from repo:", e)
+        log(f"❌ Failed fetch server URL from repo: {e}", Fore.RED)
         sys.exit(1)
 
 
@@ -62,18 +74,18 @@ def verify_license(key, config, max_retry=15):
                 return r.json()
             if r.status_code == 429:
                 sleep_time = delay + random.uniform(0, 0.7)
-                print(f"⚠️ Rate limited (429), retry in {sleep_time:.2f}s [attempt {attempt}]")
+                log(f"⚠️ Rate limited (429), retry in {sleep_time:.2f}s [attempt {attempt}]", Fore.YELLOW)
                 time.sleep(sleep_time)
                 delay = min(delay * 1.8, 20)
                 continue
-            print(f"❌ License rejected ({r.status_code}): {r.text}")
+            log(f"❌ License rejected ({r.status_code}): {r.text}", Fore.RED)
             return None
         except Exception as e:
-            print(f"⚠️ Verify error, retrying... ({e})")
+            log(f"⚠️ Verify error, retrying... ({e})", Fore.YELLOW)
             sleep_time = delay + random.uniform(0, 0.5)
             time.sleep(sleep_time)
             delay = min(delay * 1.6, 15)
-    print("❌ Too many retries, verify still failing")
+    log("❌ Too many retries, verify still failing", Fore.RED)
     return None
 
 
@@ -92,7 +104,7 @@ def heartbeat_loop():
                 raise Exception("bad status")
             data = r.json()
             if not data.get("vip"):
-                print("❌ License revoked by server")
+                log("❌ License revoked by server", Fore.RED)
                 os._exit(1)
             fail = 0
             last_ok = time.time()
@@ -100,9 +112,9 @@ def heartbeat_loop():
                 SESSION["exp"] = data["exp"]
         except Exception as e:
             fail += 1
-            print("⚠️ Launcher heartbeat failed:", e)
+            log(f"⚠️ Launcher heartbeat failed: {e}", Fore.YELLOW)
             if fail >= 5 and time.time() - last_ok > 600:
-                print("❌ Launcher lost server too long")
+                log("❌ Launcher lost server too long", Fore.RED)
                 os._exit(1)
 
 
@@ -115,25 +127,33 @@ def run_blob(blob_b64: str, session: dict):
 
 def main():
     global VERIFY_SERVER, PING_SERVER
-    print("=" * 40)
-    print(" PRIVATE TOOL LICENSE SYSTEM ")
-    print("=" * 40)
+
+    log("🎛️ LIVEXORDS Launcher initializing...", Fore.MAGENTA)
+    log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", Fore.LIGHTBLACK_EX)
+
     config = load_config()
-    print("🌐 Fetching server URL...")
+
+    log("🌐 Fetching server URL...", Fore.CYAN)
     url = fetch_server_url().rstrip("/")
+
     VERIFY_SERVER = f"{url}/verify"
     PING_SERVER = f"{url}/ping"
+
     key = config.get("license", {}).get("key")
     if not key:
-        print("❌ License key not found in config.json")
+        log("❌ License key not found in config.json", Fore.RED)
         sys.exit(1)
-    print("🔐 Verifying license...")
+
+    log("🔐 Verifying license...", Fore.YELLOW)
     data = verify_license(key, config)
     if not data:
         sys.exit(1)
+
     data["session"]["server"] = {"ping": PING_SERVER, "verify": VERIFY_SERVER}
-    print("✅ License verified!")
-    print("🚀 Loading tool...\n")
+
+    log("✅ License verified!", Fore.GREEN)
+    log("🚀 Loading tool...\n", Fore.MAGENTA)
+
     run_blob(blob_b64=data["blob"], session=data["session"])
 
 
