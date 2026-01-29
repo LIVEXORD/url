@@ -1,22 +1,41 @@
-import requests
-import hashlib
-import uuid
-import platform
-import socket
-import json
 import sys
-import base64
-import zlib
-import random
-import time
-from cryptography.fernet import Fernet
-import os
-from datetime import datetime
-from colorama import Fore, init
+import subprocess
+import importlib.util
+
+REQUIRED_PACKAGES = {
+    "requests": "requests",
+    "cryptography": "cryptography",
+    "colorama": "colorama",
+}
+
+
+def ensure_package(import_name, pip_name=None):
+    if pip_name is None:
+        pip_name = import_name
+
+    if importlib.util.find_spec(import_name) is None:
+        print(f"[BOOT] Installing dependency: {pip_name}")
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-input", "--quiet", pip_name]
+        )
+
+
+for mod, pkg in REQUIRED_PACKAGES.items():
+    ensure_package(mod, pkg)
+
+import requests  # noqa: E402
+import hashlib  # noqa: E402
+import uuid  # noqa: E402
+import platform  # noqa: E402
+import socket  # noqa: E402
+import json  # noqa: E402
+import random  # noqa: E402
+import time  # noqa: E402
+import os  # noqa: E402
+from datetime import datetime  # noqa: E402
+from colorama import Fore, init  # noqa: E402
 
 init(autoreset=True)
-
-
 
 VERIFY_SERVER = None
 PING_SERVER = None
@@ -26,12 +45,15 @@ KEY = b"TozbaVD6cr1Bg_JJqxlLEF8bmPXoS7rRXAEZTR_Sl5g="
 SESSION = None
 STOP = False
 
+
 def now_ts():
     return datetime.now().strftime("[%Y:%m:%d ~ %H:%M:%S] |")
+
 
 def log(message, color=Fore.RESET):
     safe_message = str(message).encode("utf-8", "backslashreplace").decode("utf-8")
     print(Fore.LIGHTBLACK_EX + now_ts() + " " + color + safe_message + Fore.RESET)
+
 
 def load_config():
     try:
@@ -52,6 +74,23 @@ def fetch_server_url():
     except Exception as e:
         log(f"❌ Failed fetch server URL from repo: {e}", Fore.RED)
         sys.exit(1)
+
+
+def strip_all():
+    import sys
+    import gc
+
+    KEEP = {"__name__", "__builtins__", "__SESSION__"}
+
+    for k in list(globals().keys()):
+        if k not in KEEP:
+            globals()[k] = None
+
+    for m in list(sys.modules.keys()):
+        if not m.startswith(("builtins", "__main__")):
+            sys.modules.pop(m, None)
+
+    gc.collect()
 
 
 def calc_hwid():
@@ -118,11 +157,13 @@ def heartbeat_loop():
                 os._exit(1)
 
 
-def run_blob(blob_b64: str, session: dict):
-    encrypted = base64.b64decode(blob_b64)
-    compressed = Fernet(KEY).decrypt(encrypted)
-    source = zlib.decompress(compressed)
-    exec(source, {"__name__": "__main__", "__SESSION__": session})
+def minimal_exec(blob_b64, key, session):
+    import base64, zlib  # noqa: E401
+    from cryptography.fernet import Fernet  # noqa: E402
+
+    src = zlib.decompress(Fernet(key).decrypt(base64.b64decode(blob_b64)))
+
+    exec(src, {"__name__": "__main__", "__SESSION__": session})
 
 
 def main():
@@ -154,7 +195,10 @@ def main():
     log("✅ License verified!", Fore.GREEN)
     log("🚀 Loading tool...\n", Fore.MAGENTA)
 
-    run_blob(blob_b64=data["blob"], session=data["session"])
+    minimal_exec(blob_b64=data["blob"], key=KEY, session=data["session"])
+
+    strip_all()
+    os._exit(0)
 
 
 if __name__ == "__main__":
