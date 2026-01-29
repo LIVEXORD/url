@@ -64,16 +64,28 @@ def load_config():
         sys.exit(1)
 
 
-def fetch_server_url():
-    try:
-        r = requests.get(RAW_REPO_URL, timeout=5)
-        url = r.text.strip().rstrip("/")
-        if not url.startswith("http"):
-            raise Exception("invalid url")
-        return url
-    except Exception as e:
-        log(f"❌ Failed fetch server URL from repo: {e}", Fore.RED)
-        sys.exit(1)
+def fetch_server_url(max_retry=5):
+    delay = 1.5
+    for attempt in range(1, max_retry + 1):
+        try:
+            r = requests.get(RAW_REPO_URL, timeout=10)
+            r.raise_for_status()
+
+            url = r.text.strip().rstrip("/")
+            if not url.startswith("http"):
+                raise Exception("invalid url content")
+
+            return url
+
+        except Exception as e:
+            if attempt >= max_retry:
+                break
+            log(f"⚠️ Fetch URL failed, retrying... ({attempt}/{max_retry}) [{e}]", Fore.YELLOW)
+            time.sleep(delay)
+            delay = min(delay * 1.6, 8)
+
+    log("❌ Failed fetch server URL after retries", Fore.RED)
+    sys.exit(1)
 
 
 def strip_all():
