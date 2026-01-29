@@ -92,7 +92,7 @@ def strip_all():
     import sys
     import gc
 
-    KEEP = {"__name__", "__builtins__", "__SESSION__"}
+    KEEP = {"__name__", "__builtins__", "__SESSION__", "os"}
 
     for k in list(globals().keys()):
         if k not in KEEP:
