@@ -145,15 +145,15 @@ def minimal_exec(blob_b64, key, session):
     import zlib  # noqa: E401
 
     inner_blob = Fernet(key).decrypt(blob_b64.encode()).decode()
-    encrypted = base64.b64decode(inner_blob)
-    decrypted = Fernet(KEY).decrypt(encrypted)
-    src = zlib.decompress(decrypted)
-    if "__uid__" not in src.decode(errors="ignore"):
+    decrypted = Fernet(KEY).decrypt(inner_blob.encode())
+    src = zlib.decompress(decrypted).decode()
+
+    if "__uid__" not in src:
         print("tampered blob detected")
         sys.exit(1)
+
     compiled = compile(src, "<blob>", "exec")
     exec(compiled, {"__name__": "__main__", "__SESSION__": session})
-
 
 def main():
     global VERIFY_SERVER, PING_SERVER
