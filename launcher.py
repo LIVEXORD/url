@@ -142,8 +142,9 @@ def verify_license(key, config, max_retry=15):
 
 
 def minimal_exec(blob_b64, key, session):
-    import base64, zlib # noqa: E401
-    inner_blob = Fernet(key).decrypt(base64.b64decode(blob_b64)).decode()
+    import zlib  # noqa: E401
+
+    inner_blob = Fernet(key).decrypt(blob_b64.encode()).decode()
     encrypted = base64.b64decode(inner_blob)
     decrypted = Fernet(KEY).decrypt(encrypted)
     src = zlib.decompress(decrypted)
@@ -152,6 +153,7 @@ def minimal_exec(blob_b64, key, session):
         sys.exit(1)
     compiled = compile(src, "<blob>", "exec")
     exec(compiled, {"__name__": "__main__", "__SESSION__": session})
+
 
 def main():
     global VERIFY_SERVER, PING_SERVER
