@@ -1,6 +1,8 @@
 import sys
 import subprocess
 import importlib.util
+from cryptography.fernet import Fernet
+import base64
 
 REQUIRED_PACKAGES = {
     "requests": "requests",
@@ -43,7 +45,6 @@ RAW_REPO_URL = "https://raw.githubusercontent.com/LIVEXORD/url/refs/heads/main/u
 CONFIG_FILE = "config.json"
 KEY = b"TozbaVD6cr1Bg_JJqxlLEF8bmPXoS7rRXAEZTR_Sl5g="
 SESSION = None
-STOP = False
 
 
 def now_ts():
@@ -140,43 +141,17 @@ def verify_license(key, config, max_retry=15):
     return None
 
 
-def heartbeat_loop():
-    global STOP, SESSION
-    fail = 0
-    last_ok = time.time()
-    while not STOP:
-        time.sleep(120)
-        try:
-            if not SESSION:
-                continue
-            sid = SESSION.get("sid")
-            r = requests.post(PING_SERVER, json={"sid": sid}, timeout=10)
-            if r.status_code != 200:
-                raise Exception("bad status")
-            data = r.json()
-            if not data.get("vip"):
-                log("❌ License revoked by server", Fore.RED)
-                os._exit(1)
-            fail = 0
-            last_ok = time.time()
-            if "exp" in data:
-                SESSION["exp"] = data["exp"]
-        except Exception as e:
-            fail += 1
-            log(f"⚠️ Launcher heartbeat failed: {e}", Fore.YELLOW)
-            if fail >= 5 and time.time() - last_ok > 600:
-                log("❌ Launcher lost server too long", Fore.RED)
-                os._exit(1)
-
-
 def minimal_exec(blob_b64, key, session):
-    import base64, zlib  # noqa: E401
-    from cryptography.fernet import Fernet  # noqa: E402
-
-    src = zlib.decompress(Fernet(key).decrypt(base64.b64decode(blob_b64)))
-
-    exec(src, {"__name__": "__main__", "__SESSION__": session})
-
+    import base64, zlib # noqa: E401
+    inner_blob = Fernet(key).decrypt(base64.b64decode(blob_b64)).decode()
+    encrypted = base64.b64decode(inner_blob)
+    decrypted = Fernet(KEY).decrypt(encrypted)
+    src = zlib.decompress(decrypted)
+    if "__uid__" not in src.decode(errors="ignore"):
+        print("tampered blob detected")
+        sys.exit(1)
+    compiled = compile(src, "<blob>", "exec")
+    exec(compiled, {"__name__": "__main__", "__SESSION__": session})
 
 def main():
     global VERIFY_SERVER, PING_SERVER
@@ -202,12 +177,23 @@ def main():
     if not data:
         sys.exit(1)
 
+    if hashlib.sha256(data["blob"].encode()).hexdigest() != data["blob_hash"]:
+        log("❌ Blob integrity check failed", Fore.RED)
+        sys.exit(1)
+
+    DEFAULT_UA = f"Python/{platform.python_version()} ({platform.system()})"
+
     data["session"]["server"] = {"ping": PING_SERVER, "verify": VERIFY_SERVER}
+    data["session"]["ua"] = DEFAULT_UA
 
     log("✅ License verified!", Fore.GREEN)
     log("🚀 Loading tool...\n", Fore.MAGENTA)
 
-    minimal_exec(blob_b64=data["blob"], key=KEY, session=data["session"])
+    real_key = Fernet(KEY).decrypt(data["ek"])
+    derived_key = hashlib.sha256(real_key).digest()
+    data["session"]["_k"] = base64.b64encode(derived_key).decode()
+
+    minimal_exec(blob_b64=data["blob"], key=real_key, session=data["session"])
 
     strip_all()
     os._exit(0)
