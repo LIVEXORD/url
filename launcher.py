@@ -54,6 +54,7 @@ _KEY_PARTS = [
 ]
 KEY = "".join(_KEY_PARTS).encode()
 SESSION = None
+UA = f"Python/{platform.python_version()} ({platform.system()})"
 
 
 def now_ts():
@@ -129,7 +130,7 @@ def verify_license(key, config, max_retry=15):
     delay = 1.0
     for attempt in range(1, max_retry + 1):
         try:
-            r = requests.post(VERIFY_SERVER, json=payload, timeout=10)
+            r = requests.post(VERIFY_SERVER, headers={"User-Agent": UA}, json=payload, timeout=10)
             if r.status_code == 200:
                 return r.json()
             if r.status_code == 429:
@@ -194,12 +195,10 @@ def main():
 
     if hashlib.sha256(data["blob"].encode()).hexdigest() != data["blob_hash"]:
         log("❌ Blob integrity check failed", Fore.RED)
-        sys.exit(1)
-
-    DEFAULT_UA = f"Python/{platform.python_version()} ({platform.system()})"
+        sys.exit(1)    
 
     data["session"]["server"] = {"ping": PING_SERVER, "verify": VERIFY_SERVER}
-    data["session"]["ua"] = DEFAULT_UA
+    data["session"]["ua"] = UA
 
     log("✅ License verified!", Fore.GREEN)
     log("🚀 Loading tool...\n", Fore.MAGENTA)
