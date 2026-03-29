@@ -3,6 +3,10 @@ import subprocess
 import importlib.util
 from cryptography.fernet import Fernet
 import base64
+import random
+import time
+
+time.sleep(random.uniform(0.3, 1.2))
 
 REQUIRED_PACKAGES = {
     "requests": "requests",
@@ -43,7 +47,12 @@ VERIFY_SERVER = None
 PING_SERVER = None
 RAW_REPO_URL = "https://raw.githubusercontent.com/LIVEXORD/url/refs/heads/main/url.txt"
 CONFIG_FILE = "config.json"
-KEY = b"TozbaVD6cr1Bg_JJqxlLEF8bmPXoS7rRXAEZTR_Sl5g="
+_KEY_PARTS = [
+    "TozbaVD6cr1Bg_",
+    "JJqxlLEF8bmPXo",
+    "S7rRXAEZTR_Sl5g="
+]
+KEY = "".join(_KEY_PARTS).encode()
 SESSION = None
 
 
@@ -90,8 +99,7 @@ def fetch_server_url(max_retry=5):
 
 
 def strip_all():
-    import sys
-    import gc
+    import gc  # noqa: E402
 
     KEEP = {"__name__", "__builtins__", "__SESSION__", "os"}
 
@@ -142,20 +150,25 @@ def verify_license(key, config, max_retry=15):
 
 
 def minimal_exec(blob_b64, key, session):
-    import zlib  # noqa: E401
+    import zlib  # noqa: E402
 
-    inner_blob = Fernet(key).decrypt(blob_b64.encode()).decode()
-    decrypted = Fernet(KEY).decrypt(inner_blob.encode())
+    if not isinstance(blob_b64, str) or len(blob_b64) < 100:
+        sys.exit(1)
+    inner_blob = Fernet(key).decrypt(blob_b64.encode())
+    inner_blob = base64.b64decode(inner_blob)
+    decrypted = Fernet(KEY).decrypt(inner_blob)
     src = zlib.decompress(decrypted).decode()
 
     if "__uid__" not in src:
         print("tampered blob detected")
         sys.exit(1)
 
-    compiled = compile(src, "<blob>", "exec")
-    exec(compiled, {"__name__": "__main__", "__SESSION__": session})
+    exec(compile(src, "<blob>", "exec"), {"__name__": "__main__", "__SESSION__": session})
+
 
 def main():
+    if sys.gettrace():
+        sys.exit(1)
     global VERIFY_SERVER, PING_SERVER
 
     log("🎛️ LIVEXORDS Launcher initializing...", Fore.MAGENTA)
@@ -191,7 +204,11 @@ def main():
     log("✅ License verified!", Fore.GREEN)
     log("🚀 Loading tool...\n", Fore.MAGENTA)
 
-    real_key = Fernet(KEY).decrypt(data["ek"])
+    ek = data["ek"]
+    if isinstance(ek, str):
+        ek = base64.b64decode(ek)
+
+    real_key = Fernet(KEY).decrypt(ek)
     derived_key = hashlib.sha256(real_key).digest()
     data["session"]["_k"] = base64.b64encode(derived_key).decode()
 
