@@ -47,11 +47,7 @@ VERIFY_SERVER = None
 PING_SERVER = None
 RAW_REPO_URL = "https://raw.githubusercontent.com/LIVEXORD/url/refs/heads/main/url.txt"
 CONFIG_FILE = "config.json"
-_KEY_PARTS = [
-    "TozbaVD6cr1Bg_",
-    "JJqxlLEF8bmPXo",
-    "S7rRXAEZTR_Sl5g="
-]
+_KEY_PARTS = ["TozbaVD6cr1Bg_", "JJqxlLEF8bmPXo", "S7rRXAEZTR_Sl5g="]
 KEY = "".join(_KEY_PARTS).encode()
 SESSION = None
 UA = f"Python/{platform.python_version()} ({platform.system()})"
@@ -102,7 +98,7 @@ def fetch_server_url(max_retry=5):
 def strip_all():
     import gc  # noqa: E402
 
-    KEEP = {"__name__", "__builtins__", "__SESSION__", "os"}
+    KEEP = {"__name__", "__builtins__", "__SESSION__", "os", "sys"}
 
     for k in list(globals().keys()):
         if k not in KEEP:
@@ -122,6 +118,22 @@ def calc_hwid():
 
 def get_fingerprint():
     return (calc_hwid(), platform.system())
+
+
+def anti_debug():
+    import inspect
+
+    if sys.gettrace():
+        os._exit(1)
+
+    for frame in inspect.stack():
+        if "pydev" in frame.filename.lower() or "debug" in frame.filename.lower():
+            os._exit(1)
+
+    suspicious = ["frida", "x64dbg", "ida", "ghidra"]
+    for s in suspicious:
+        if s in str(sys.modules).lower():
+            os._exit(1)
 
 
 def verify_license(key, config, max_retry=15):
@@ -170,47 +182,48 @@ def minimal_exec(blob_b64, key, session):
 def main():
     if sys.gettrace():
         sys.exit(1)
+    anti_debug()
+    start = time.time()
+    time.sleep(random.uniform(0.2, 0.6))
+    if time.time() - start > 2:
+        os._exit(1)
     global VERIFY_SERVER, PING_SERVER
-
     log("🎛️ LIVEXORDS Launcher initializing...", Fore.MAGENTA)
     log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", Fore.LIGHTBLACK_EX)
-
     config = load_config()
-
     log("🌐 Fetching server URL...", Fore.CYAN)
     url = fetch_server_url().rstrip("/")
-
     VERIFY_SERVER = f"{url}/verify"
     PING_SERVER = f"{url}/ping"
-
     key = config.get("license", {}).get("key")
     if not key:
         log("❌ License key not found in config.json", Fore.RED)
         sys.exit(1)
-
     log("🔐 Verifying license...", Fore.YELLOW)
     data = verify_license(key, config)
     if not data:
         sys.exit(1)
-
     if hashlib.sha256(data["blob"].encode()).hexdigest() != data["blob_hash"]:
         log("❌ Blob integrity check failed", Fore.RED)
-        sys.exit(1)    
-
+        sys.exit(1)
     data["session"]["server"] = {"ping": PING_SERVER, "verify": VERIFY_SERVER}
     data["session"]["ua"] = UA
-
     log("✅ License verified!", Fore.GREEN)
     log("🚀 Loading tool...\n", Fore.MAGENTA)
-
     ek = data["ek"]
     if isinstance(ek, str):
         ek = base64.b64decode(ek)
-
     real_key = Fernet(KEY).decrypt(ek)
-    derived_key = hashlib.sha256(real_key).digest()
-    data["session"]["_k"] = base64.b64encode(derived_key).decode()
-
+    data["session"]["_k"] = base64.b64encode(real_key).decode()
+    sess = data["session"]
+    real_key = Fernet(KEY).decrypt(ek)
+    sess_key = hashlib.sha256(real_key).digest()
+    sess["nonce"] = data["session"]["nonce"]
+    hwid = sess["hwid"]
+    fp = hashlib.sha256(f"{hwid}|{UA}".encode()).hexdigest()
+    sess["fp"] = fp
+    source = f"{sess['sid']}|{sess['uid']}|{sess['hwid']}|{sess['nonce']}"
+    sess["sig"] = hashlib.sha256((source + sess_key.hex()).encode()).hexdigest()
     minimal_exec(blob_b64=data["blob"], key=real_key, session=data["session"])
 
     strip_all()
